@@ -46,6 +46,7 @@ with tqdm(total=int(len(catalogue['URL'])*catalogue_fraction)) as pbar:
             pbar.update(1)
             continue
 
+        # Open file and write contents of response to it
         with open(jpg_file_path, "wb") as image_jpg:
             image_jpg.write(response.content)
             im = Image.open(jpg_file_path)
