@@ -1,7 +1,8 @@
+from torch.utils.data import DataLoader, Dataset
 import pandas as pd
 import random
 
-file = pd.read_csv("catalog.csv", encoding='latin')
+class PaintingsDataset(Dataset):
+    def __init__(self, file):
 
-# Print random author name
-print(file["AUTHOR"][random.randint(0, len(file["AUTHOR"]))])
+    def __getitem__(self, item):
