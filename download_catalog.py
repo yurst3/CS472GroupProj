@@ -4,11 +4,17 @@ from PIL import Image
 import os
 import requests
 
-# TODO: Exclude stuff that isn't paintings?
-catalogue = pd.read_csv("catalog.csv", encoding='latin')
+catalog = pd.read_csv("catalog.csv", encoding='latin')
 
-# Fraction of paintings to use from the catalogue
+# Name of the directory to download everything to
+directory = "images"
+
+# Fraction of entries to use from the catalogue
 catalogue_fraction = 1/100
+
+# Only download if the this is the type of artwork
+# Set to 'None' to download everything
+restrict_form = "painting"
 
 # Skips over files if they are already downloaded
 skip_downloaded = True
@@ -16,19 +22,22 @@ skip_downloaded = True
 # Resize each downloaded image to these dimensions
 resize_dimensions = (128,128)
 
+# Filter out data entries that don't match the form
+if restrict_form is not None:
+    catalog = catalog[catalog.FORM == restrict_form]
+
 # Use progress bar from tqdm library
-with tqdm(total=int(len(catalogue['URL'])*catalogue_fraction)) as pbar:
-    for i in range(int(len(catalogue['URL'])*catalogue_fraction)):
+with tqdm(total=int(len(catalog['URL']) * catalogue_fraction)) as pbar:
+    for index, row in catalog.iterrows():
 
         # Get URL and modify so it requests the jpg image instead of an html page
         # EX: https://www.wga.hu/html/a/aachen/adonis.html --> https://www.wga.hu/art/a/aachen/adonis.jpg
-        url = catalogue['URL'][i].replace("/html", "/art").replace(".html", ".jpg")
-        author = catalogue['AUTHOR'][i]
-        title = catalogue['TITLE'][i]
+        url = row['URL'].replace("/html", "/art").replace(".html", ".jpg")
+        author = row['AUTHOR']
+        title = row['TITLE']
 
-        # Create file path using the author and title of the artwork
-        # Remove extraneous " from the file path
-        jpg_file_path = f"images/{author} \'{title}\'.jpg".replace('\"', '')
+        # Create file path using index
+        jpg_file_path = directory + f"/{index}.jpg"
 
         # Skip over this file if it has already been downloaded
         if skip_downloaded and os.path.isfile(jpg_file_path):
