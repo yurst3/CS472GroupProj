@@ -4,8 +4,6 @@ from PIL import Image
 import os
 import requests
 
-catalog = pd.read_csv("catalog.csv", encoding='latin')
-
 # Name of the directory to download everything to
 directory = "images"
 
@@ -22,12 +20,19 @@ skip_downloaded = True
 # Resize each downloaded image to these dimensions
 resize_dimensions = (128,128)
 
+# Read in catalog
+catalog = pd.read_csv("catalog.csv", encoding='latin')
+
 # Filter out data entries that don't match the form
 if restrict_form is not None:
     catalog = catalog[catalog.FORM == restrict_form]
 
+# Calculate the total number of entries to use and trim catalog to that length
+total = int(len(catalog['URL']) * catalogue_fraction)
+catalog = catalog[:total]
+
 # Use progress bar from tqdm library
-with tqdm(total=int(len(catalog['URL']) * catalogue_fraction)) as pbar:
+with tqdm(total=total) as pbar:
     for index, row in catalog.iterrows():
 
         # Get URL and modify so it requests the jpg image instead of an html page
