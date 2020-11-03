@@ -18,7 +18,7 @@ restrict_form = "painting"
 skip_downloaded = True
 
 # Resize each downloaded image to these dimensions
-resize_dimensions = (128,128)
+resize_dimensions = (32,32)
 
 # Read in catalog
 catalog = pd.read_csv("catalog.csv", encoding='latin')
