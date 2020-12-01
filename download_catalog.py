@@ -5,10 +5,10 @@ import os
 import requests
 
 # Name of the directory to download everything to
-directory = "images"
+directory = "images_128"
 
 # Fraction of entries to use from the catalogue
-catalogue_fraction = 1/100
+catalogue_fraction = 1/10
 
 # Only download if the this is the type of artwork
 # Set to 'None' to download everything
@@ -18,7 +18,7 @@ restrict_form = "painting"
 skip_downloaded = True
 
 # Resize each downloaded image to these dimensions
-resize_dimensions = (32,32)
+resize_dimensions = (128,128)
 
 # Read in catalog
 catalog = pd.read_csv("catalog.csv", encoding='latin')
