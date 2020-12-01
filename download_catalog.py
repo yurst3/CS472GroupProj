@@ -1,14 +1,15 @@
 import pandas as pd
 from tqdm import tqdm
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import os
 import requests
+import sys
 
 # Name of the directory to download everything to
 directory = "images_128"
 
 # Fraction of entries to use from the catalogue
-catalogue_fraction = 1/10
+catalogue_fraction = 1
 
 # Only download if the this is the type of artwork
 # Set to 'None' to download everything
@@ -61,12 +62,18 @@ with tqdm(total=total) as pbar:
             continue
 
         # Open file and write contents of response to it
-        with open(jpg_file_path, "wb") as image_jpg:
-            image_jpg.write(response.content)
-            im = Image.open(jpg_file_path)
+        try:
+            with open(jpg_file_path, "wb") as image_jpg:
+                image_jpg.write(response.content)
+                im = Image.open(jpg_file_path)
 
-            # Resize image to dimensions specified above
-            resized_im = im.resize(resize_dimensions)
-            resized_im.save(jpg_file_path)
+                # Resize image to dimensions specified above
+                resized_im = im.resize(resize_dimensions)
+                resized_im.save(jpg_file_path)
+
+        # If PIL can't open the image for some reason, remove it from the directory
+        except UnidentifiedImageError:
+            pbar.write(f'Error opening {jpg_file_path}, removing from directory')
+            os.remove(jpg_file_path)
 
         pbar.update(1)
