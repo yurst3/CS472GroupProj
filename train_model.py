@@ -18,27 +18,32 @@ device = torch.device(
 )
 
 class PaintingsDataset(Dataset):
-    def __init__(self, catalog_file, image_dir, restrict_form=None):
+    def __init__(self, catalog_file, image_dir, min_entries_per_artist=2, restrict_form=None):
         # List files
         self.image_dir = image_dir
         _, _, self.files = next(os.walk(image_dir))
-        self.file_count = len(self.files)
 
         # Read in catalog and restrict form if necessary
         self.catalog = pd.read_csv(catalog_file, encoding='latin')
         if restrict_form is not None:
             self.catalog = self.catalog[self.catalog.FORM == restrict_form]
-        self.catalog = self.catalog[:self.file_count]
 
         # List unique authors
-        self.unique_authors = self.catalog['AUTHOR'].unique()
+        self.authors = self.catalog['AUTHOR'].unique()
+
+        # Remove authors that have less than the minimum number of entries required for each author
+        self.authors = [author for author in self.authors
+                        if len(self.catalog[self.catalog.AUTHOR == author]) >= min_entries_per_artist]
+
+        # Remove files with authors that aren't in the list of approved authors
+        self.files = [file for file in self.files if self.catalog['AUTHOR'][int(file.strip(".jpg"))] in self.authors]
 
     def __getitem__(self, item):
         index = int(self.files[item].strip(".jpg"))
         author = self.catalog['AUTHOR'][index]
 
         file = self.image_dir + "/" + self.files[item]
-        img = Image.open(file)
+        img = Image.open(file).convert('RGB')
         trans = transforms.ToTensor()
 
         # Feature and 1-hot encoded label
@@ -50,12 +55,13 @@ class PaintingsDataset(Dataset):
                               for i in range(len(self.unique_authors))])
         '''
         # Integer label (CrossEntropy Loss)
-        label = torch.Tensor(np.where(self.unique_authors == author)).long()
+        label = [list(self.authors).index(author)]
+        label = torch.Tensor(label).long()
 
         return feature, label
 
     def __len__(self):
-        return self.file_count
+        return len(self.files)
 
 
 class Model(nn.Module):
@@ -89,6 +95,10 @@ def main():
     # Path to save model to
     model_path = "model.pth"
 
+    # Minimum number of artworks an artist needs to be included in the data set
+    # This is to reduce the number of outlier artists with a small number of artworks
+    min_entries_per_artist = 5
+
     # Dimensions of all the images_32 to be used
     image_dimensions = (128,128)
 
@@ -97,13 +107,18 @@ def main():
     measure_val_acc = True
 
     # PyTorch DataLoader Variables
-    batch_size = 16
+    batch_size = 32
     shuffle = True
-    epochs = 48
+    epochs = 64
     num_workers = 1
 
-    dataset = PaintingsDataset('catalog.csv', "images_128", restrict_form="painting")
-    print(f"Unique Authors: {len(dataset.unique_authors)}")
+    # TODO: Implement function that divides train/test images into separate directories
+    dataset = PaintingsDataset('catalog.csv', "images_128",
+                               min_entries_per_artist=min_entries_per_artist,
+                               restrict_form="painting")
+    print(f"Min Number of Works per Author: {min_entries_per_artist}")
+    print(f"Unique Works of Art: {len(dataset)}")
+    print(f"Number of Authors: {len(dataset.authors)}")
 
     train_loader = DataLoader(dataset,
                               batch_size=batch_size,
@@ -112,7 +127,7 @@ def main():
 
     val_loader = DataLoader(dataset, batch_size=1, shuffle=False)
 
-    model = Model(3, len(dataset.unique_authors), image_dimensions).to(device)
+    model = Model(3, len(dataset.authors), image_dimensions).to(device)
 
     #criterion = nn.MSELoss()
     criterion = nn.CrossEntropyLoss()
@@ -127,7 +142,7 @@ def main():
 
             for inputs, labels in train_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
-                labels = labels.squeeze(1).squeeze(1)
+                labels = labels.squeeze(1)
 
                 # zero the parameter gradients
                 optimizer.zero_grad()
