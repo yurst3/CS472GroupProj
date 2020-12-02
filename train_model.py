@@ -117,7 +117,7 @@ def main():
 
     ### Training variables ###
     catalog_file = 'catalog.csv'
-    data_directory = 'images_128'
+    data_directory = 'images_128x128'
     image_dimensions = (128, 128)
     # Will load model from this path if it exists, otherwise it will make a new model and save to this path
     model_path = None

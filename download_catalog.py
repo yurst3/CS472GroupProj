@@ -3,10 +3,6 @@ from tqdm import tqdm
 from PIL import Image, UnidentifiedImageError
 import os
 import requests
-import sys
-
-# Name of the directory to download everything to
-directory = "images_128"
 
 # Fraction of entries to use from the catalogue
 catalogue_fraction = 1
@@ -19,7 +15,14 @@ restrict_form = "painting"
 skip_downloaded = True
 
 # Resize each downloaded image to these dimensions
-resize_dimensions = (128,128)
+resize_dimensions = (128, 128)
+
+# Name of the directory to download everything to
+directory = f'images_{resize_dimensions[0]}x{resize_dimensions[1]}'
+
+# Check to make sure the directory actually exists
+if not os.path.exists(directory):
+    os.mkdir(directory)
 
 # Read in catalog
 catalog = pd.read_csv("catalog.csv", encoding='latin')
