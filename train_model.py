@@ -10,6 +10,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import os
 import random
+import numpy as np
 
 device = torch.device(
     f'cuda:0' if torch.cuda.is_available() else
@@ -32,7 +33,7 @@ def split_data(catalog, data_dir, split_ratio=0.9, min_entries_per_artist=1, res
     # Remove files with authors that aren't in the list of approved authors
     data_files = [file for file in data_files if df['AUTHOR'][int(file.strip(".jpg"))] in authors]
 
-    print('Dividing into train/test data...')
+    #print('Dividing into train/test data...')
 
     split_num = int(len(data_files) * split_ratio)
 
@@ -72,11 +73,6 @@ class PaintingsDataset(Dataset):
         # Feature and 1-hot encoded label
         feature = trans(img)
 
-        '''
-        # One-hot encoding (MSE Loss)
-        label = torch.Tensor([0 if author != self.unique_authors[i] else 1
-                              for i in range(len(self.unique_authors))])
-        '''
         # Integer label (CrossEntropy Loss)
         label = [list(self.authors).index(author)]
         label = torch.Tensor(label).long()
@@ -112,6 +108,7 @@ class Model(nn.Module):
         #x = self.soft(x)
         return x
 
+
 def main():
     print(device)
 
@@ -125,13 +122,13 @@ def main():
     min_entries_per_artist = 5
     # Ratio between train/test data, recommend keeping this one high
     split_ratio = 0.9
-    epochs = 100
+    epochs = 1000
     converge = 0.005
     measure_loss = True
     measure_val_acc = True
 
     # PyTorch DataLoader Variables
-    batch_size = 32
+    batch_size = 100
     shuffle = True
     num_workers = 1
 
@@ -153,7 +150,7 @@ def main():
                               num_workers=num_workers)
 
     val_loader = DataLoader(test_dataset,
-                            batch_size=1,
+                            batch_size=len(test_dataset),
                             shuffle=False)
 
     if model_path is not None and os.path.exists(model_path):
@@ -161,7 +158,6 @@ def main():
     else:
         model = Model(3, len(train_dataset.authors), image_dimensions).to(device)
 
-    #criterion = nn.MSELoss()
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
@@ -171,43 +167,37 @@ def main():
         while len(epoch_train_losses) == 0 or (epoch_train_losses[-1] > converge and len(epoch_train_losses) < epochs):
             losses = []
 
-            for inputs, labels in train_loader:
-                inputs, labels = inputs.to(device), labels.to(device)
-                labels = labels.squeeze(1)
+            for inputs, target in train_loader:
+                inputs, target = inputs.to(device), target.to(device)
+                target = target.squeeze(1)
 
                 # zero the parameter gradients
                 optimizer.zero_grad()
 
                 # forward + backward + optimize
                 outputs = model(inputs)
-                loss = criterion(outputs, labels)
+                loss = criterion(outputs, target)
                 loss.backward()
                 optimizer.step()
 
                 if measure_loss:
                     losses.append(loss.item())
 
-            # Append average loss to epoch losses
-            if measure_loss:
-                epoch_train_losses.append(sum(losses)/len(losses))
-                pbar.set_description(f"Avg Loss: {epoch_train_losses[-1]:.3f}")
-
+            epoch_train_losses.append(sum(losses)/len(losses))
+            pbar.set_description(f"Min Entries: {min_entries_per_artist}, Avg Loss: {epoch_train_losses[-1]:.3f}")
             pbar.update(1)
 
     if measure_val_acc:
-        val_losses = []
         with torch.no_grad():
-            for inputs, labels in val_loader:
-                inputs, labels = inputs.to(device), labels.to(device)
-                labels = labels.squeeze(1)
+            for inputs, target in val_loader:
+                inputs, target = inputs.to(device), target.to(device)
+                target = target.squeeze(1)
 
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
+                out = model(inputs)
+                accuracy = (torch.softmax(out, dim=1).argmax(dim=1) == target).sum().float() / float( target.size(0) )
+                print(f'Accuracy: {accuracy}')
 
-                val_losses.append(loss.item())
-
-        print(f'Average loss over test set: {sum(val_losses)/len(val_losses)}')
-
+    '''
     if model_path is not None:
         torch.save(model, model_path)
 
@@ -217,6 +207,8 @@ def main():
         plt.ylabel('Average Loss')
         plt.xlabel('Epoch')
         plt.savefig('Training_Loss.png')
+    '''
+
 
 if __name__ == "__main__":
     main()
