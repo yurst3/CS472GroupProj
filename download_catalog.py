@@ -15,7 +15,7 @@ restrict_form = "painting"
 skip_downloaded = True
 
 # Resize each downloaded image to these dimensions
-resize_dimensions = (128, 128)
+resize_dimensions = (16, 16)
 
 # Name of the directory to download everything to
 directory = f'images_{resize_dimensions[0]}x{resize_dimensions[1]}'

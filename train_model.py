@@ -7,52 +7,103 @@ import torch.optim as optim
 from PIL import Image
 import pandas as pd
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 import os
 import random
 import numpy as np
+
+from itertools import combinations
+from math import comb
 
 device = torch.device(
     f'cuda:0' if torch.cuda.is_available() else
     'cpu'
 )
 
+print(device)
 
-def split_data(catalog, data_dir, split_ratio=0.9, min_entries_per_artist=1, restrict_form='painting'):
-    _, _, data_files = next(os.walk(data_dir))
+### Training variables ###
+catalog_file = 'catalog.csv'
+data_directories = ['images_128x128']
+image_dimensions = [(128, 128)]
+restrict_form = 'painting'
+constant_val = True
+min_entries_per_artist = np.arange(300, 305, 5)
+# Ratio between train/test data, recommend keeping this one high
+train_val_ratio = 0.9
+train_fraction = 0.9
+epochs = 1000
+converge = 0.01
+# Number of models to train
+model_num = 11
 
-    # Read in catalog and restrict form if necessary
-    df = pd.read_csv(catalog, encoding='latin')
-    if restrict_form is not None:
-        df = df[df.FORM == restrict_form]
+# PyTorch DataLoader Variables
+batch_size = 64
+shuffle = True
+num_workers = 1
 
-    # Remove authors that have less than the minimum number of entries required for each author
-    authors = df['AUTHOR'].unique()
-    authors = [author for author in authors if len(df[df.AUTHOR == author]) >= min_entries_per_artist]
 
-    # Remove files with authors that aren't in the list of approved authors
-    data_files = [file for file in data_files if df['AUTHOR'][int(file.strip(".jpg"))] in authors]
+class DataSplitter:
+    def __init__(self, catalog, data_dir, restrict_form='painting', const_val=False):
+        self.catalog = catalog
+        self.data_dir = data_dir
+        self.restrict_form = restrict_form
+        self.const_val = const_val
 
-    #print('Dividing into train/test data...')
+        # Make a list of all files in the data directory
+        _, _, self.data_files = next(os.walk(self.data_dir))
 
-    split_num = int(len(data_files) * split_ratio)
+        # Read in catalog and restrict form if necessary
+        self.df = pd.read_csv(self.catalog, encoding='latin')
+        if self.restrict_form is not None:
+            self.df = self.df[self.df.FORM == self.restrict_form]
 
-    # Repeat until the number test authors are a subset of the train authors
-    train_authors = {}
-    test_authors = {0}
-    while not test_authors.issubset(train_authors):
-        shuffle = data_files.copy()
-        random.shuffle(shuffle)
-        train_files = shuffle[:split_num]
-        test_files = shuffle[split_num:]
+        # Get all unique authors from the dataframe
+        self.unique_authors = self.df['AUTHOR'].unique()
 
-        train_authors = set([df['AUTHOR'][int(file.strip(".jpg"))] for file in train_files])
-        test_authors = set([df['AUTHOR'][int(file.strip(".jpg"))] for file in test_files])
+    def reduce_data(self, min_entries_per_artist):
+        # Remove authors that have less than the minimum number of entries required for each author
+        self.unique_authors = [author for author in self.unique_authors if
+                               len(self.df[self.df.AUTHOR == author]) >= min_entries_per_artist]
 
-    train_dataset = PaintingsDataset(df, authors, data_dir, train_files)
-    test_dataset = PaintingsDataset(df, authors, data_dir, test_files)
+        # Remove files with authors that aren't in the list of approved authors
+        self.data_files = [file for file in self.data_files if
+                           self.df['AUTHOR'][int(file.strip(".jpg"))] in self.unique_authors]
 
-    return train_dataset, test_dataset
+    # MUST BE CALLED BEFORE get_train()
+    def get_val(self, split_ratio):
+        split_num = int(len(self.data_files) * split_ratio)
+
+        # Repeat until the number test authors are a subset of the train authors
+        self.train_authors = {}
+        self.val_authors = {0}
+        while not self.val_authors.issubset(self.train_authors):
+            shuffle = self.data_files.copy()
+            random.shuffle(shuffle)
+            self.train_files = shuffle[:split_num]
+            self.val_files = shuffle[split_num:]
+
+            self.train_authors = set([self.df['AUTHOR'][int(file.strip(".jpg"))] for file in self.train_files])
+            self.val_authors = set([self.df['AUTHOR'][int(file.strip(".jpg"))] for file in self.val_files])
+
+        return PaintingsDataset(self.df, self.unique_authors, self.data_dir, self.val_files)
+
+    # MUST BE CALLED AFTER get_val()
+    def get_train(self, train_fraction):
+        split_num = int(len(self.train_files) * train_fraction)
+
+        frac_authors = {}
+
+        # Repeat until the fraction authors are a subset of the train authors
+        while not self.val_authors.issubset(frac_authors):
+            shuffle = self.train_files.copy()
+            random.shuffle(shuffle)
+            fraction = self.train_files[:split_num]
+
+            frac_authors = set([self.df['AUTHOR'][int(file.strip(".jpg"))] for file in fraction])
+
+        train_dataset = PaintingsDataset(self.df, self.unique_authors, self.data_dir, fraction)
+
+        return train_dataset
 
 
 class PaintingsDataset(Dataset):
@@ -110,105 +161,110 @@ class Model(nn.Module):
 
 
 def main():
-    print(device)
 
-    ### Training variables ###
-    catalog_file = 'catalog.csv'
-    data_directory = 'images_128x128'
-    image_dimensions = (128, 128)
-    # Will load model from this path if it exists, otherwise it will make a new model and save to this path
-    model_path = None
-    restrict_form = 'painting'
-    min_entries_per_artist = 5
-    # Ratio between train/test data, recommend keeping this one high
-    split_ratio = 0.9
-    epochs = 1000
-    converge = 0.005
-    measure_loss = True
-    measure_val_acc = True
+    comb_sum = sum([comb(model_num, x) for x in range(1, model_num+2, 2)])
+    with tqdm(total=len(image_dimensions) * len(min_entries_per_artist)*comb_sum) as pbar:
+        for dimensions, data_directory in zip(image_dimensions, data_directories):
 
-    # PyTorch DataLoader Variables
-    batch_size = 100
-    shuffle = True
-    num_workers = 1
+            splitter = DataSplitter(catalog=catalog_file,
+                                    data_dir=data_directory,
+                                    restrict_form=restrict_form,
+                                    const_val=constant_val)
+            accuracies = []
+            for min_entries in min_entries_per_artist:
 
-    train_dataset, test_dataset = split_data(catalog_file,
-                                             data_directory,
-                                             split_ratio,
-                                             min_entries_per_artist,
-                                             restrict_form)
+                pbar.set_description(
+                    f"D {dimensions[0]}x{dimensions[1]}, ME {min_entries}, reducing")
+                # Reduce the total number of authors and files to match the new minimum entries
+                # Return a validation dataset that is 1/10 of the total data
+                splitter.reduce_data(min_entries)
+                pbar.set_description(
+                    f"D {dimensions[0]}x{dimensions[1]}, ME {min_entries}, splitting val")
+                val_dataset = splitter.get_val(train_val_ratio)
+                val_loader = DataLoader(val_dataset,
+                                        batch_size=len(val_dataset),
+                                        shuffle=False)
 
-    print(f"Min Number of Works per Author: {min_entries_per_artist}")
-    print(f"Number of Authors: {len(train_dataset.authors)}")
-    print(f"Unique Works of Art: {len(train_dataset) + len(test_dataset)}")
-    print(f"Size of Train Data Set: {len(train_dataset)}")
-    print(f"Size of Test Data Set: {len(test_dataset)}")
+                # Create all models
+                models = [Model(3, len(splitter.unique_authors), dimensions).to(device) for i in range(model_num)]
 
-    train_loader = DataLoader(train_dataset,
-                              batch_size=batch_size,
-                              shuffle=shuffle,
-                              num_workers=num_workers)
+                # Train each model
+                for model_index, model in enumerate(models):
+                    pbar.set_description(
+                        f"D {dimensions[0]}x{dimensions[1]}, ME {min_entries}, M {model_index + 1}, splitting train")
+                    train_dataset = splitter.get_train(train_fraction)
 
-    val_loader = DataLoader(test_dataset,
-                            batch_size=len(test_dataset),
-                            shuffle=False)
+                    train_loader = DataLoader(train_dataset,
+                                              batch_size=batch_size,
+                                              shuffle=shuffle,
+                                              num_workers=num_workers)
 
-    if model_path is not None and os.path.exists(model_path):
-        model = torch.load(model_path).to(device)
-    else:
-        model = Model(3, len(train_dataset.authors), image_dimensions).to(device)
+                    criterion = nn.CrossEntropyLoss()
+                    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+                    epoch_train_losses = []
 
-    epoch_train_losses = []
+                    while len(epoch_train_losses) == 0 or (epoch_train_losses[-1] > converge and len(epoch_train_losses) < epochs):
+                        losses = []
 
-    with tqdm(total=epochs) as pbar:
-        while len(epoch_train_losses) == 0 or (epoch_train_losses[-1] > converge and len(epoch_train_losses) < epochs):
-            losses = []
+                        for inputs, target in train_loader:
+                            inputs, target = inputs.to(device), target.to(device)
+                            target = target.squeeze(1)
 
-            for inputs, target in train_loader:
-                inputs, target = inputs.to(device), target.to(device)
-                target = target.squeeze(1)
+                            # zero the parameter gradients
+                            optimizer.zero_grad()
 
-                # zero the parameter gradients
-                optimizer.zero_grad()
+                            # forward + backward + optimize
+                            outputs = model(inputs)
+                            loss = criterion(outputs, target)
+                            loss.backward()
+                            optimizer.step()
 
-                # forward + backward + optimize
-                outputs = model(inputs)
-                loss = criterion(outputs, target)
-                loss.backward()
-                optimizer.step()
+                            losses.append(loss.item())
 
-                if measure_loss:
-                    losses.append(loss.item())
+                        epoch_train_losses.append(sum(losses)/len(losses))
+                        pbar.set_description(f"D {dimensions[0]}x{dimensions[1]}, ME {min_entries}, M {model_index+1}, AL {epoch_train_losses[-1]:.3f}, E {len(epoch_train_losses)}")
 
-            epoch_train_losses.append(sum(losses)/len(losses))
-            pbar.set_description(f"Min Entries: {min_entries_per_artist}, Avg Loss: {epoch_train_losses[-1]:.3f}")
-            pbar.update(1)
+                # Validate accuracies for all combinations of models from 1 to bag_num
+                with torch.no_grad():
+                    model_num_acc = []
+                    for i in range(1, model_num+2, 2):
+                        combo_acc = []
 
-    if measure_val_acc:
-        with torch.no_grad():
-            for inputs, target in val_loader:
-                inputs, target = inputs.to(device), target.to(device)
-                target = target.squeeze(1)
+                        pbar.set_description(
+                            f"D {dimensions[0]}x{dimensions[1]}, ME {min_entries}, Validating {i} models")
 
-                out = model(inputs)
-                accuracy = (torch.softmax(out, dim=1).argmax(dim=1) == target).sum().float() / float( target.size(0) )
-                print(f'Accuracy: {accuracy}')
+                        # Iterate over all combinations of model nums and calculate the accuracy for each
+                        for combo in combinations(models, i):
 
-    '''
-    if model_path is not None:
-        torch.save(model, model_path)
+                            # Predict for each model in the combination
+                            probs = []
+                            for model in combo:
+                                for inputs, target in val_loader:
+                                    inputs, target = inputs.to(device), target.to(device)
+                                    target = target.squeeze(1)
 
-    if measure_loss:
-        plt.plot(epoch_train_losses)
-        plt.title('Average Cross-Entropy Loss per Epoch')
-        plt.ylabel('Average Loss')
-        plt.xlabel('Epoch')
-        plt.savefig('Training_Loss.png')
-    '''
+                                    out = model(inputs)
+                                    probs.append(torch.softmax(out, dim=1))
 
+                            # Sum all of the probabilities together
+                            prob_sum = torch.sum(torch.stack(probs, dim=0), dim=0)
+
+                            # Calculate the accuracy for the probability sum
+                            winners = prob_sum.argmax(dim=1)
+                            corrects = (winners == target)
+                            accuracy = corrects.sum().float() / float(target.size(0))
+
+                            # Append the accuracy of this combination to the combination accuracies
+                            combo_acc.append(accuracy.item())
+                            pbar.update(1)
+                        # Append average of all combination accuracies to model number accuracies
+                        model_num_acc.append(sum(combo_acc)/len(combo_acc))
+                    # Append all model number accuracies to accuracies arrays
+                    accuracies.append(model_num_acc)
+
+            accuracies = np.array(accuracies)
+            np.save(f'300_bag_accuracies.npy', accuracies)
 
 if __name__ == "__main__":
     main()
