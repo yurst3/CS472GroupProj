@@ -19,22 +19,23 @@ device = torch.device(
     'cpu'
 )
 
-print(device)
+#print(device)
 
 ### Training variables ###
 catalog_file = 'catalog.csv'
 data_directories = ['images_128x128']
 image_dimensions = [(128, 128)]
 restrict_form = 'painting'
+exclude_types = ['interior']
 constant_val = True
-min_entries_per_artist = np.arange(300, 305, 5)
+min_entries_per_artist = np.arange(5, 305, 5)
 # Ratio between train/test data, recommend keeping this one high
 train_val_ratio = 0.9
 train_fraction = 0.9
 epochs = 1000
-converge = 0.01
+converge = 0.1
 # Number of models to train
-model_num = 11
+model_num = 7
 
 # PyTorch DataLoader Variables
 batch_size = 64
@@ -43,11 +44,10 @@ num_workers = 1
 
 
 class DataSplitter:
-    def __init__(self, catalog, data_dir, restrict_form='painting', const_val=False):
+    def __init__(self, catalog, data_dir, restrict_form='painting', exclude_type=None):
         self.catalog = catalog
         self.data_dir = data_dir
         self.restrict_form = restrict_form
-        self.const_val = const_val
 
         # Make a list of all files in the data directory
         _, _, self.data_files = next(os.walk(self.data_dir))
@@ -56,6 +56,11 @@ class DataSplitter:
         self.df = pd.read_csv(self.catalog, encoding='latin')
         if self.restrict_form is not None:
             self.df = self.df[self.df.FORM == self.restrict_form]
+
+        if exclude_type is not None:
+            for type in exclude_type:
+                self.data_files = [file for file in self.data_files if self.df['TYPE'][int(file.strip(".jpg"))] != type]
+                self.df = self.df[self.df.TYPE != type]
 
         # Get all unique authors from the dataframe
         self.unique_authors = self.df['AUTHOR'].unique()
@@ -89,19 +94,23 @@ class DataSplitter:
 
     # MUST BE CALLED AFTER get_val()
     def get_train(self, train_fraction):
-        split_num = int(len(self.train_files) * train_fraction)
 
-        frac_authors = {}
+        if train_fraction < 1.0:
+            split_num = int(len(self.train_files) * train_fraction)
 
-        # Repeat until the fraction authors are a subset of the train authors
-        while not self.val_authors.issubset(frac_authors):
-            shuffle = self.train_files.copy()
-            random.shuffle(shuffle)
-            fraction = self.train_files[:split_num]
+            frac_authors = {}
 
-            frac_authors = set([self.df['AUTHOR'][int(file.strip(".jpg"))] for file in fraction])
+            # Repeat until the fraction authors are a subset of the train authors
+            while not self.val_authors.issubset(frac_authors):
+                shuffle = self.train_files.copy()
+                random.shuffle(shuffle)
+                fraction = self.train_files[:split_num]
 
-        train_dataset = PaintingsDataset(self.df, self.unique_authors, self.data_dir, fraction)
+                frac_authors = set([self.df['AUTHOR'][int(file.strip(".jpg"))] for file in fraction])
+
+            train_dataset = PaintingsDataset(self.df, self.unique_authors, self.data_dir, fraction)
+        else:
+            train_dataset = PaintingsDataset(self.df, self.unique_authors, self.data_dir, self.train_files)
 
         return train_dataset
 
@@ -163,23 +172,23 @@ class Model(nn.Module):
 def main():
 
     comb_sum = sum([comb(model_num, x) for x in range(1, model_num+2, 2)])
-    with tqdm(total=len(image_dimensions) * len(min_entries_per_artist)*comb_sum) as pbar:
+    with tqdm(total=len(image_dimensions) * len(min_entries_per_artist)*(comb_sum + (epochs*model_num))) as pbar:
         for dimensions, data_directory in zip(image_dimensions, data_directories):
 
             splitter = DataSplitter(catalog=catalog_file,
                                     data_dir=data_directory,
                                     restrict_form=restrict_form,
-                                    const_val=constant_val)
+                                    exclude_type=exclude_types)
             accuracies = []
             for min_entries in min_entries_per_artist:
 
                 pbar.set_description(
-                    f"D {dimensions[0]}x{dimensions[1]}, ME {min_entries}, reducing")
+                    f"D {dimensions[0]}x{dimensions[1]}, ({min_entries},?,?), reducing")
                 # Reduce the total number of authors and files to match the new minimum entries
                 # Return a validation dataset that is 1/10 of the total data
                 splitter.reduce_data(min_entries)
                 pbar.set_description(
-                    f"D {dimensions[0]}x{dimensions[1]}, ME {min_entries}, splitting val")
+                    f"D {dimensions[0]}x{dimensions[1]}, ({min_entries},{len(splitter.unique_authors)},{len(splitter.data_files)}), splitting val")
                 val_dataset = splitter.get_val(train_val_ratio)
                 val_loader = DataLoader(val_dataset,
                                         batch_size=len(val_dataset),
@@ -191,7 +200,7 @@ def main():
                 # Train each model
                 for model_index, model in enumerate(models):
                     pbar.set_description(
-                        f"D {dimensions[0]}x{dimensions[1]}, ME {min_entries}, M {model_index + 1}, splitting train")
+                        f"D {dimensions[0]}x{dimensions[1]}, ({min_entries},{len(splitter.unique_authors)},{len(splitter.data_files)}), M {model_index + 1}, splitting train")
                     train_dataset = splitter.get_train(train_fraction)
 
                     train_loader = DataLoader(train_dataset,
@@ -204,6 +213,8 @@ def main():
 
                     epoch_train_losses = []
 
+                    pbar.set_description(
+                        f"D {dimensions[0]}x{dimensions[1]}, ({min_entries},{len(splitter.unique_authors)},{len(splitter.data_files)}), M {model_index + 1}, first epoch")
                     while len(epoch_train_losses) == 0 or (epoch_train_losses[-1] > converge and len(epoch_train_losses) < epochs):
                         losses = []
 
@@ -223,7 +234,10 @@ def main():
                             losses.append(loss.item())
 
                         epoch_train_losses.append(sum(losses)/len(losses))
-                        pbar.set_description(f"D {dimensions[0]}x{dimensions[1]}, ME {min_entries}, M {model_index+1}, AL {epoch_train_losses[-1]:.3f}, E {len(epoch_train_losses)}")
+                        pbar.set_description(f"D {dimensions[0]}x{dimensions[1]}, ({min_entries},{len(splitter.unique_authors)},{len(splitter.data_files)}), M {model_index+1}, AL {epoch_train_losses[-1]:.3f}, E {len(epoch_train_losses)}")
+                        pbar.update(1)
+
+                    pbar.update(epochs-len(epoch_train_losses))
 
                 # Validate accuracies for all combinations of models from 1 to bag_num
                 with torch.no_grad():
@@ -232,7 +246,7 @@ def main():
                         combo_acc = []
 
                         pbar.set_description(
-                            f"D {dimensions[0]}x{dimensions[1]}, ME {min_entries}, Validating {i} models")
+                            f"D {dimensions[0]}x{dimensions[1]}, ME {min_entries}, Validating {i} models, {comb(model_num,i)} combinations")
 
                         # Iterate over all combinations of model nums and calculate the accuracy for each
                         for combo in combinations(models, i):
@@ -262,9 +276,7 @@ def main():
                         model_num_acc.append(sum(combo_acc)/len(combo_acc))
                     # Append all model number accuracies to accuracies arrays
                     accuracies.append(model_num_acc)
-
-            accuracies = np.array(accuracies)
-            np.save(f'300_bag_accuracies.npy', accuracies)
+                    np.save(f'type_restrict_accuracies.npy', np.array(accuracies))
 
 if __name__ == "__main__":
     main()
