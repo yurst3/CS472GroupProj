@@ -6,9 +6,9 @@
     <li><a href="#TASK">Task</a></li>
     <li><a href="#DATA">Data Collection and Selection</a></li>
     <li><a href="#INITIAL">Initial Tests and Results</a></li>
-    <li><a href="#Test1">Test 1: Stopping Loss</a></li>
-    <li><a href="#Test2">Test 2: Image Resolutions</a></li>
-    <li><a href="#Test3">Test 3: Multiple Models</a></li>
+    <li><a href="#STOPPING">Test 1: Stopping Loss</a></li>
+    <li><a href="#RESOLUTION">Test 2: Image Resolutions</a></li>
+    <li><a href="#MODELS">Test 3: Multiple Models</a></li>
   </ol>
 </details>
 
@@ -56,7 +56,7 @@ I repeated the test performed above 60 times, starting with 5 minimum works and 
 ![InitialResultsGraph](graphs/initial_results.png)
 ![ArtworksPerArtistsGraph](graphs/Artworks-Artists.png)
 
-<!-- Test1 -->
+<!-- STOPPING -->
 ## Test 1: Stopping Loss
 
 After my initial results, I theorized that perhaps using a stopping loss of 0.01 was leading to my model over-fitting the training images and lowering the prediction accuracy as a result. So I lowered the stopping accuracy to 0.005, and recorded the accuracy at when the average loss of the last epoch was 1.0, 0.1, 0.01, and 0.005. What I found is that all 4 stopping losses were roughly equivalent in accuracy, and over-fitting was likely not a problem. The results of this test are displayed below.
@@ -65,7 +65,7 @@ After my initial results, I theorized that perhaps using a stopping loss of 0.01
 
 For future tests I used a stopping loss of 0.01.
 
-<!-- Test2 -->
+<!-- RESOLUTION -->
 ## Test 2: Image Resolutions
 
 Next I wanted to see if different image resolutions would affect the accuracy of the model. I re-downloaded all of the images from the catalog at 16x16, 32x32, 64x64, and 256x256 resolutions. 256x256 proved to be too large of a resolution, and was causing my GPU driver to run out of memory, so I wasn't able to graph the accuracies for this resolution. For all the others, the results are displayed below.
@@ -74,7 +74,7 @@ Next I wanted to see if different image resolutions would affect the accuracy of
 
 The results show that 16x16 and 32x32 resolutions performed noticeably worse than 64x64 and 128x128. However upon closer examination, when the model was training on 16x16 and 32x32 resolutions, it always trained until the maximum epoch of 100 was reach instead of the stopping loss. This indicated that had the models been allowed to train for more epochs until the stopping loss was reached, 16x16 and 32x32 resolution would have had similar accuracies to 64x64 and 128x128.
 
-<!-- Test3 -->
+<!-- MODELS -->
 ## Test 3: Multiple Models
 
 For my final test before this project was due, I wanted to implement an ensemble technique called bootstrap aggregating or bagging. This technique combines several identical models, each trained on a slightly different training set, and combines their predictions together to create a new (often times superior) prediction. For all 60 minimum works values, I created 7 models. I split my data into 90% training and 10% test sets. Then each of the 7 models was trained on a random 90% of the training set, or 81% of all the paintings. Once all 7 models had been trained, I evaluated the accuracy using combinations of 1, 3, 5 and 7 # of models. For each # of models being evaluated, I iterated through all possible combinations of that # of models, predicting with each model, summing the predictions together, and assessing the accuracy for that combination. I then averaged all accuracies for every combination to get the final accuracy for that # of models. The results of this test are shown below.
