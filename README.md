@@ -2,13 +2,13 @@
 <details open="open">
   <summary>Table of Contents</summary>
   <ol>
-    <li><a href="#usage">About This Project</a></li>
-    <li><a href="#roadmap">Task</a></li>
-    <li><a href="#contributing">Data Collection and Selection</a></li>
-    <li><a href="#license">Initial Tests and Results</a></li>
-    <li><a href="#contact">Test 1: Stopping Loss</a></li>
-    <li><a href="#acknowledgements">Test 2: Image Resolutions</a></li>
-    <li><a href="#acknowledgements">Test 3: Multiple Models</a></li>
+    <li><a href="#ABOUT-THIS-PROJECT">About This Project</a></li>
+    <li><a href="#TASK">Task</a></li>
+    <li><a href="#DATA">Data Collection and Selection</a></li>
+    <li><a href="#INITIAL">Initial Tests and Results</a></li>
+    <li><a href="#Test1">Test 1: Stopping Loss</a></li>
+    <li><a href="#Test2">Test 2: Image Resolutions</a></li>
+    <li><a href="#Test3">Test 3: Multiple Models</a></li>
   </ol>
 </details>
 
